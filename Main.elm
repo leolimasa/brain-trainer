@@ -1,27 +1,39 @@
 module Main exposing (..)
 
-import Html exposing (text, div, h1)
+import Html exposing (text, div, h1, input)
 import Html.App exposing (beginnerProgram)
+import Html.Events exposing (onInput, on, keyCode)
+import Json.Decode as Json
+import String
 
-
-type Message = GenerateMultiplication | SubmitAnswer
+type Message = UpdateAnswer String | TextboxKeyPress Int
 
 type Operation = Sum | Subtract | Multiply | Divide
 
 type alias Question = {
-      leftNum : Int
-    , rightNum : Int 
+      leftNum : Float 
+    , rightNum : Float 
     , operation : Operation 
   }
 
 type alias Model = {
       curQuestion : Question
+    , curAnswer : Float
     , questionsRemaining : List Question
     , wrongAnswers : List Question
   }
 
-update : Model -> Model -> Model 
-update msg model = model
+onKeyPress : (Int -> a) -> Html.Attribute a
+onKeyPress tagger = on "keypress" (Json.map tagger keyCode)
+                 
+update : Message -> Model -> Model 
+update msg model = case msg of
+                     UpdateAnswer a -> { model | curAnswer = case String.toFloat a of
+                                                               Ok v -> v
+                                                               Err er -> 0.0}
+                     TextboxKeyPress key -> if key == 13
+                                            then answerQuestion model model.curAnswer
+                                            else model
 
 cartesian : List a -> List b -> List (a,b)
 cartesian xs ys =
@@ -29,8 +41,9 @@ cartesian xs ys =
     ( \x -> List.map ( \y -> (x, y) ) ys )
     xs
 
-permutations : Int -> Int -> List (Int, Int)
-permutations start end = cartesian [start..end] [start..end]
+permutations : Int -> Int -> List (Float, Float)
+permutations start end = List.map (\(x,y) -> (toFloat x, toFloat y))
+                         <| cartesian [start..end] [start..end]
 
 opToString : Operation -> String
 opToString op = case op of
@@ -39,39 +52,72 @@ opToString op = case op of
                   Multiply -> "x"
                   Divide -> "/"
 
-questionsFromList : Operation -> List (Int, Int) -> List Question
+questionsFromList : Operation -> List (Float, Float) -> List Question
 questionsFromList op = List.map (\(x, y) -> {
                               leftNum = x
                               , rightNum = y
                               , operation = op
                             })
                        
-nextQuestion : Model -> Model
+nextQuestion : Model -> Model 
 nextQuestion m = { m |
-                     curQuestion = List.head m.questionsRemaining
-                     , questionsRemaining = List.tail m.questionsRemaining
+                     curQuestion = case List.head m.questionsRemaining of
+                                     Just x -> x
+                                     Nothing -> m.curQuestion
+                     , questionsRemaining = case List.tail m.questionsRemaining of
+                                              Just x -> x
+                                              Nothing -> []
                  }
+
+wrongAnswer : Model -> Model
+wrongAnswer m = { m |
+                    wrongAnswers = m.curQuestion :: m.wrongAnswers
+                }
+
+evalQuestion : Question -> Float 
+evalQuestion q = evalOperation q.operation q.leftNum q.rightNum
+
+evalOperation : Operation -> Float -> Float -> Float 
+evalOperation op a b = case op of
+                         Sum -> a + b
+                         Subtract -> a - b
+                         Multiply -> a * b
+                         Divide -> a / b
+  
+answerQuestion : Model -> Float -> Model
+answerQuestion m answer = if (evalQuestion m.curQuestion) == answer
+                          then nextQuestion m
+                          else nextQuestion <| wrongAnswer m
 
 startingModel : Model
 startingModel = {
+  curAnswer = 0.0,
   curQuestion = {
-      leftNum = 7
-      , rightNum = 8
+      leftNum = 0.0
+      , rightNum = 0.0
       , operation = Sum }
  , questionsRemaining = questionsFromList Multiply <| permutations 3 9 
  , wrongAnswers = [] }
 
 
-display : Model -> Html.Html d
-display model = div [] [
-                 text (toString model.curQuestion.leftNum),
-                 text <| opToString model.curQuestion.operation,
-                 text (toString model.curQuestion.rightNum)
-                ] 
+display : Model -> Html.Html Message 
+display model = div[] [
+                 div [] [
+                        text (toString model.curQuestion.leftNum),
+                          text <| opToString model.curQuestion.operation,
+                          text (toString model.curQuestion.rightNum),
+                          text "=",
+                          input [ onInput UpdateAnswer, onKeyPress TextboxKeyPress ] []
+                       ] 
+                   , div [] [
+                            text
+                              <| String.concat ["Wrong answers: ", toString (List.length model.wrongAnswers)]
+                           ]
+                   ]
 
 main : Program Never
 main = beginnerProgram {
-             model = startingModel,
+             model = nextQuestion startingModel,
              update = update,
              view = display 
        }
