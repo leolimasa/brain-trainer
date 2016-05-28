@@ -5,8 +5,9 @@ import Html.App exposing (program)
 import Html.Events exposing (onInput, on, keyCode)
 import Json.Decode as Json
 import String
+import Time exposing (second, Time)
 
-type Message = UpdateAnswer String | TextboxKeyPress Int
+type Message = UpdateAnswer String | TextboxKeyPress Int | Tick Time 
 
 type Operation = Sum | Subtract | Multiply | Divide
 
@@ -17,7 +18,8 @@ type alias Question =
     }
 
 type alias Model =
-    { curQuestion : Question
+    { timeleft : Int
+    , curQuestion : Question
     , curAnswer : Float
     , questionsRemaining : List Question
     , wrongAnswers : List Question
@@ -41,11 +43,18 @@ update msg model =
               if key == 13
               then answerQuestion model model.curAnswer
               else model
+          Tick t ->
+              if model.timeleft == 0
+              then answerQuestion model model.curAnswer 
+              else { model | timeleft = model.timeleft - 1 }
     , Cmd.none
     )
 
 subscriptions : Model -> Sub Message 
-subscriptions m = Sub.none
+subscriptions m =
+    if (List.length m.questionsRemaining > 0)
+    then Time.every second Tick 
+    else Sub.none
 
 cartesian : List a -> List b -> List (a,b)
 cartesian xs ys =
@@ -74,16 +83,36 @@ questionsFromList op = List.map
                            , operation = op
                            }
                        )
-                       
-nextQuestion : Model -> Model 
+
+nextQuestion : Model -> Model
 nextQuestion m =
+    if (List.length m.questionsRemaining) > 0
+    then nextRegularQuestion m
+    else nextWrongQuestion m
+                           
+nextRegularQuestion : Model -> Model 
+nextRegularQuestion m =
     { m |
-      curQuestion =
+      timeleft = 5
+    , curAnswer = 0
+    , curQuestion =
           case List.head m.questionsRemaining of
               Just x -> x
               Nothing -> m.curQuestion
     , questionsRemaining =
         case List.tail m.questionsRemaining of
+            Just x -> x
+            Nothing -> []
+    }
+
+nextWrongQuestion m =
+    { m |
+      curQuestion =
+        case List.head m.wrongAnswers of
+            Just x -> x
+            Nothing -> m.curQuestion
+    , wrongAnswers =
+        case List.tail m.wrongAnswers of
             Just x -> x
             Nothing -> []
     }
@@ -98,11 +127,12 @@ evalQuestion : Question -> Float
 evalQuestion q = evalOperation q.operation q.leftNum q.rightNum
 
 evalOperation : Operation -> Float -> Float -> Float 
-evalOperation op a b = case op of
-                         Sum -> a + b
-                         Subtract -> a - b
-                         Multiply -> a * b
-                         Divide -> a / b
+evalOperation op a b =
+    case op of
+        Sum -> a + b
+        Subtract -> a - b
+        Multiply -> a * b
+        Divide -> a / b
   
 answerQuestion : Model -> Float -> Model
 answerQuestion m answer = if (evalQuestion m.curQuestion) == answer
@@ -111,7 +141,8 @@ answerQuestion m answer = if (evalQuestion m.curQuestion) == answer
 
 startingModel : (Model, Cmd Message)
 startingModel =
-    ( { curAnswer = 0.0,
+    ( { timeleft = 5,
+        curAnswer = 0.0,
         curQuestion =
             { leftNum = 0.0
             , rightNum = 0.0
@@ -134,17 +165,27 @@ display model =
                 text "=",
                 input [ onInput UpdateAnswer, onKeyPress TextboxKeyPress ] []
               ] 
-        , div []
-            [ text <|
-                  "Wrong answers: "
-                  ++ toString (List.length model.wrongAnswers)
-            ]
+        , div [] <| footerMessage model
         ]
 
+footerMessage : Model -> List (Html.Html a)
+footerMessage m =
+    [ text <|
+          "Wrong answers: "
+          ++ toString (List.length m.wrongAnswers)
+    ]
+    ++ if (List.length m.questionsRemaining) == 0 && (List.length m.wrongAnswers) > 0
+       then [text "Correction time"]
+       else [] 
+    ++ if (List.length m.questionsRemaining) == 0 && (List.length m.wrongAnswers) == 0
+       then [text "Done!"]
+       else []
+         
+
+
 main =
-    program {
-             init = startingModel,
-             update = update,
-             view = display,
-             subscriptions = subscriptions
-       }
+    program { init = startingModel
+            , update = update
+            , view = display
+            , subscriptions = subscriptions
+            }
