@@ -21,6 +21,7 @@ type alias Model =
     { timeleft : Int
     , curQuestion : Question
     , curAnswer : Float
+    , correctAnswer : Maybe Float
     , questionsRemaining : List Question
     , wrongAnswers : List Question
     }
@@ -43,10 +44,14 @@ update msg model =
               if key == 13
               then answerQuestion model model.curAnswer
               else model
-          Tick t ->
-              if model.timeleft == 0
+          Tick t -> model
+          {-    if model.timeleft == 0 && model.correctAnswer == Nothing
               then answerQuestion model model.curAnswer 
-              else { model | timeleft = model.timeleft - 1 }
+              else
+                  if model.correctAnswer == Nothing
+                  then { model | timeleft = model.timeleft - 1 }
+                  else model
+                  -}
     , Cmd.none
     )
 
@@ -83,12 +88,15 @@ questionsFromList op = List.map
                            , operation = op
                            }
                        )
-
+resetTime : Model -> Model
+resetTime m = { m | timeleft = 5 }
+                           
 nextQuestion : Model -> Model
 nextQuestion m =
-    if (List.length m.questionsRemaining) > 0
-    then nextRegularQuestion m
-    else nextWrongQuestion m
+    resetTime 
+    <| if (List.length m.questionsRemaining) > 0
+       then nextRegularQuestion m
+       else nextWrongQuestion m
                            
 nextRegularQuestion : Model -> Model 
 nextRegularQuestion m =
@@ -119,8 +127,8 @@ nextWrongQuestion m =
 
 wrongAnswer : Model -> Model
 wrongAnswer m =
-    { m |
-      wrongAnswers = m.curQuestion :: m.wrongAnswers
+    { m | wrongAnswers = m.curQuestion :: m.wrongAnswers
+    , correctAnswer = Just <| evalQuestion m.curQuestion 
     }
 
 evalQuestion : Question -> Float 
@@ -135,14 +143,23 @@ evalOperation op a b =
         Divide -> a / b
   
 answerQuestion : Model -> Float -> Model
-answerQuestion m answer = if (evalQuestion m.curQuestion) == answer
-                          then nextQuestion m
-                          else nextQuestion <| wrongAnswer m
-
+answerQuestion m answer =
+    let
+        evaled = (evalQuestion m.curQuestion)
+    in
+        if m.correctAnswer /= Nothing
+        then nextQuestion { m | correctAnswer = Nothing }
+        else if evaled == answer
+             then nextQuestion { m | correctAnswer = Nothing } 
+             else 
+                 wrongAnswer m 
+                   
+                              
 startingModel : (Model, Cmd Message)
 startingModel =
     ( { timeleft = 5,
         curAnswer = 0.0,
+        correctAnswer = Nothing,
         curQuestion =
             { leftNum = 0.0
             , rightNum = 0.0
@@ -170,7 +187,12 @@ display model =
 
 footerMessage : Model -> List (Html.Html a)
 footerMessage m =
-    [ text <|
+    [
+     text (case m.correctAnswer of
+               Just a -> "Correct answer: " ++ toString a
+               Nothing -> ""
+          )
+     , text <|
           "Wrong answers: "
           ++ toString (List.length m.wrongAnswers)
     ]
